@@ -1,7 +1,7 @@
 /*
  * bookmark.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -212,9 +212,9 @@ bookmark_get_list(void)
 }
 
 char*
-bookmark_find(const char *const search_str)
+bookmark_find(const char *const search_str, gboolean previous)
 {
-    return autocomplete_complete(bookmark_ac, search_str, TRUE);
+    return autocomplete_complete(bookmark_ac, search_str, TRUE, previous);
 }
 
 void

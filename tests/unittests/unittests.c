@@ -6,6 +6,9 @@
 #include <setjmp.h>
 #include <cmocka.h>
 #include <sys/stat.h>
+#include <stdlib.h>
+#include <locale.h>
+#include <langinfo.h>
 
 #include "config.h"
 #include "xmpp/chat_session.h"
@@ -37,6 +40,21 @@
 #include "test_plugins_disco.h"
 
 int main(int argc, char* argv[]) {
+    setlocale(LC_ALL, "en_GB.UTF-8");
+    char *codeset = nl_langinfo(CODESET);
+    char *lang = getenv("LANG");
+
+    printf("Charset information:\n");
+
+    if (lang) {
+        printf("  LANG:       %s\n", lang);
+    }
+    if (codeset) {
+        printf("  CODESET:    %s\n", codeset);
+    }
+    printf("  MB_CUR_MAX: %d\n", MB_CUR_MAX);
+    printf("  MB_LEN_MAX: %d\n", MB_LEN_MAX);
+
     const UnitTest all_tests[] = {
 
         unit_test(replace_one_substr),
@@ -88,6 +106,12 @@ int main(int argc, char* argv[]) {
         unit_test(add_two_adds_two),
         unit_test(add_two_same_adds_one),
         unit_test(add_two_same_updates),
+        unit_test(complete_accented_with_accented),
+        unit_test(complete_accented_with_base),
+        unit_test(complete_both_with_accented),
+        unit_test(complete_both_with_base),
+        unit_test(complete_ignores_case),
+        unit_test(complete_previous),
 
         unit_test(create_jid_from_null_returns_null),
         unit_test(create_jid_from_empty_string_returns_null),
@@ -429,7 +453,9 @@ int main(int argc, char* argv[]) {
         unit_test_setup_teardown(console_shows_dnd_presence_when_set_all,
             load_preferences,
             close_preferences),
-        unit_test(handle_offline_removes_chat_session),
+        unit_test_setup_teardown(handle_offline_removes_chat_session,
+            load_preferences,
+            close_preferences),
         unit_test(lost_connection_clears_chat_sessions),
 
         unit_test(cmd_alias_add_shows_usage_when_no_args),

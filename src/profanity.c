@@ -1,7 +1,7 @@
 /*
  * profanity.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -203,13 +203,14 @@ _init(char *log_level)
     tray_init();
 #endif
     inp_nonblocking(TRUE);
+    ui_resize();
 }
 
 static void
 _shutdown(void)
 {
-    if (prefs_get_boolean(PREF_TITLEBAR_SHOW)) {
-        if (prefs_get_boolean(PREF_TITLEBAR_GOODBYE)) {
+    if (prefs_get_boolean(PREF_WINTITLE_SHOW)) {
+        if (prefs_get_boolean(PREF_WINTITLE_GOODBYE)) {
             ui_goodbye_title();
         } else {
             ui_clear_win_title();

@@ -1,7 +1,7 @@
 /*
  * cmd_funcs.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -171,14 +171,18 @@ cmd_tls_certpath(ProfWin *window, const char *const command, gchar **args)
         }
         return TRUE;
     } else if (g_strcmp0(args[1], "clear") == 0) {
-        prefs_set_string(PREF_TLS_CERTPATH, NULL);
+        prefs_set_string(PREF_TLS_CERTPATH, "none");
         cons_show("Certificate path cleared");
         return TRUE;
+    } else if (g_strcmp0(args[1], "default") == 0) {
+        prefs_set_string(PREF_TLS_CERTPATH, NULL);
+        cons_show("Certificate path defaulted to finding system certpath.");
+        return TRUE;
     } else if (args[1] == NULL) {
-        char *path = prefs_get_string(PREF_TLS_CERTPATH);
+        char *path = prefs_get_tls_certpath();
         if (path) {
             cons_show("Trusted certificate path: %s", path);
-            prefs_free_string(path);
+            free(path);
         } else {
             cons_show("No trusted certificate path set.");
         }
@@ -265,7 +269,7 @@ cmd_tls_revoke(ProfWin *window, const char *const command, gchar **args)
         if (res) {
             cons_show("Trusted certificate revoked: %s", args[1]);
         } else {
-            cons_show("Could not find certificate: %s", args[0]);
+            cons_show("Could not find certificate: %s", args[1]);
         }
     }
     return TRUE;
@@ -346,7 +350,8 @@ cmd_connect(ProfWin *window, const char *const command, gchar **args)
     if (tls_policy &&
             (g_strcmp0(tls_policy, "force") != 0) &&
             (g_strcmp0(tls_policy, "allow") != 0) &&
-            (g_strcmp0(tls_policy, "disable") != 0)) {
+            (g_strcmp0(tls_policy, "disable") != 0) &&
+            (g_strcmp0(tls_policy, "legacy") != 0)) {
         cons_bad_cmd_usage(command);
         cons_show("");
         return TRUE;
@@ -412,7 +417,7 @@ cmd_connect(ProfWin *window, const char *const command, gchar **args)
             account->password = NULL;
         }
 
-        jid = account_create_full_jid(account);
+        jid = account_create_connect_jid(account);
         account_free(account);
 
     // connect with JID
@@ -809,8 +814,9 @@ _account_set_tls(char *account_name, char *policy)
 {
     if ((g_strcmp0(policy, "force") != 0)
             && (g_strcmp0(policy, "allow") != 0)
-            && (g_strcmp0(policy, "disable") != 0)) {
-        cons_show("TLS policy must be one of: force, allow or disable.");
+            && (g_strcmp0(policy, "disable") != 0)
+            && (g_strcmp0(policy, "legacy") != 0)) {
+        cons_show("TLS policy must be one of: force, allow, legacy or disable.");
     } else {
         accounts_set_tls_policy(account_name, policy);
         cons_show("Updated TLS policy for account %s: %s", account_name, policy);
@@ -856,8 +862,7 @@ _account_set_presence_priority(char *account_name, char *presence, char *priorit
         char *connected_account = session_get_account_name();
         resource_presence_t last_presence = accounts_get_last_presence(connected_account);
         if (presence_type == last_presence) {
-            char *message = connection_get_presence_msg();
-            cl_ev_presence_send(last_presence, message, 0);
+            cl_ev_presence_send(last_presence, 0);
         }
     }
     cons_show("Updated %s priority for account %s: %s", presence, account_name, priority);
@@ -954,6 +959,14 @@ cmd_account_clear(ProfWin *window, const char *const command, gchar **args)
     } else if (strcmp(property, "theme") == 0) {
         accounts_clear_theme(account_name);
         cons_show("Removed theme for account %s", account_name);
+        cons_show("");
+    } else if (strcmp(property, "muc") == 0) {
+        accounts_clear_muc(account_name);
+        cons_show("Removed MUC service for account %s", account_name);
+        cons_show("");
+    } else if (strcmp(property, "resource") == 0) {
+        accounts_clear_resource(account_name);
+        cons_show("Removed resource for account %s", account_name);
         cons_show("");
     } else {
         cons_show("Invalid property: %s", property);
@@ -1156,17 +1169,17 @@ cmd_sub(ProfWin *window, const char *const command, gchar **args)
         PContact contact = roster_get_contact(jidp->barejid);
         if ((contact == NULL) || (p_contact_subscription(contact) == NULL)) {
             if (window->type == WIN_CHAT) {
-                ui_current_print_line("No subscription information for %s.", jidp->barejid);
+                win_println(window, THEME_DEFAULT, '-', "No subscription information for %s.", jidp->barejid);
             } else {
                 cons_show("No subscription information for %s.", jidp->barejid);
             }
         } else {
             if (window->type == WIN_CHAT) {
                 if (p_contact_pending_out(contact)) {
-                    ui_current_print_line("%s subscription status: %s, request pending.",
+                    win_println(window, THEME_DEFAULT, '-', "%s subscription status: %s, request pending.",
                         jidp->barejid, p_contact_subscription(contact));
                 } else {
-                    ui_current_print_line("%s subscription status: %s.", jidp->barejid,
+                    win_println(window, THEME_DEFAULT, '-', "%s subscription status: %s.", jidp->barejid,
                         p_contact_subscription(contact));
                 }
             } else {
@@ -1382,7 +1395,7 @@ cmd_close(ProfWin *window, const char *const command, gchar **args)
 
         // check for unsaved form
         if (ui_win_has_unsaved_form(index)) {
-            ui_current_print_line("You have unsaved changes, use /form submit or /form cancel");
+            win_println(window, THEME_DEFAULT, '-', "You have unsaved changes, use /form submit or /form cancel");
             return TRUE;
         }
 
@@ -1417,7 +1430,7 @@ cmd_close(ProfWin *window, const char *const command, gchar **args)
 
         // check for unsaved form
         if (ui_win_has_unsaved_form(index)) {
-            ui_current_print_line("You have unsaved changes, use /form submit or /form cancel");
+            win_println(window, THEME_DEFAULT, '-', "You have unsaved changes, use /form submit or /form cancel");
             return TRUE;
         }
 
@@ -1474,14 +1487,49 @@ cmd_win(ProfWin *window, const char *const command, gchar **args)
 }
 
 static void
+_cmd_list_commands(GList *commands) {
+    int maxlen = 0;
+    GList *curr = commands;
+    while (curr) {
+        gchar *cmd = curr->data;
+        int len = strlen(cmd);
+        if (len > maxlen) maxlen = len;
+        curr = g_list_next(curr);
+    }
+
+    GString *cmds = g_string_new("");
+    curr = commands;
+    int count = 0;
+    while (curr) {
+        gchar *cmd = curr->data;
+        if (count == 5) {
+            cons_show(cmds->str);
+            g_string_free(cmds, TRUE);
+            cmds = g_string_new("");
+            count = 0;
+        }
+        g_string_append_printf(cmds, "%-*s", maxlen + 1, cmd);
+        curr = g_list_next(curr);
+        count++;
+    }
+    cons_show(cmds->str);
+    g_string_free(cmds, TRUE);
+    g_list_free(curr);
+
+    cons_show("");
+    cons_show("Use /help [command] without the leading slash, for help on a specific command");
+    cons_show("");
+}
+
+static void
 _cmd_help_cmd_list(const char *const tag)
 {
     cons_show("");
     ProfWin *console = wins_get_console();
     if (tag) {
-        win_vprint(console, '-', 0, NULL, 0, THEME_WHITE_BOLD, "", "%s commands", tag);
+        win_println(console, THEME_HELP_HEADER, '-', "%s commands", tag);
     } else {
-        win_print(console, '-', 0, NULL, 0, THEME_WHITE_BOLD, "", "All commands");
+        win_println(console, THEME_HELP_HEADER, '-', "All commands");
     }
 
     GList *ordered_commands = NULL;
@@ -1509,38 +1557,8 @@ _cmd_help_cmd_list(const char *const tag)
         }
     }
 
-    int maxlen = 0;
-    GList *curr = ordered_commands;
-    while (curr) {
-        gchar *cmd = curr->data;
-        int len = strlen(cmd);
-        if (len > maxlen) maxlen = len;
-        curr = g_list_next(curr);
-    }
-
-    GString *cmds = g_string_new("");
-    curr = ordered_commands;
-    int count = 0;
-    while (curr) {
-        gchar *cmd = curr->data;
-        if (count == 5) {
-            cons_show(cmds->str);
-            g_string_free(cmds, TRUE);
-            cmds = g_string_new("");
-            count = 0;
-        }
-        g_string_append_printf(cmds, "%-*s", maxlen + 1, cmd);
-        curr = g_list_next(curr);
-        count++;
-    }
-    cons_show(cmds->str);
-    g_string_free(cmds, TRUE);
+    _cmd_list_commands(ordered_commands);
     g_list_free(ordered_commands);
-    g_list_free(curr);
-
-    cons_show("");
-    cons_show("Use /help [command] without the leading slash, for help on a specific command");
-    cons_show("");
 }
 
 gboolean
@@ -1549,6 +1567,46 @@ cmd_help(ProfWin *window, const char *const command, gchar **args)
     int num_args = g_strv_length(args);
     if (num_args == 0) {
         cons_help();
+    } else if (strcmp(args[0], "search_all") == 0) {
+        if (args[1] == NULL) {
+            cons_bad_cmd_usage(command);
+        } else {
+            GList *cmds = cmd_search_index_all(args[1]);
+            if (cmds == NULL) {
+                cons_show("No commands found.");
+            } else {
+                GList *curr = cmds;
+                GList *results = NULL;
+                while (curr) {
+                    results = g_list_insert_sorted(results, curr->data, (GCompareFunc)g_strcmp0);
+                    curr = g_list_next(curr);
+                }
+                cons_show("Search results:");
+                _cmd_list_commands(results);
+                g_list_free(results);
+            }
+            g_list_free(cmds);
+        }
+    } else if (strcmp(args[0], "search_any") == 0) {
+        if (args[1] == NULL) {
+            cons_bad_cmd_usage(command);
+        } else {
+            GList *cmds = cmd_search_index_any(args[1]);
+            if (cmds == NULL) {
+                cons_show("No commands found.");
+            } else {
+                GList *curr = cmds;
+                GList *results = NULL;
+                while (curr) {
+                    results = g_list_insert_sorted(results, curr->data, (GCompareFunc)g_strcmp0);
+                    curr = g_list_next(curr);
+                }
+                cons_show("Search results:");
+                _cmd_list_commands(results);
+                g_list_free(results);
+            }
+            g_list_free(cmds);
+        }
     } else if (strcmp(args[0], "commands") == 0) {
         if (args[1]) {
             if (!cmd_valid_tag(args[1])) {
@@ -1662,7 +1720,7 @@ cmd_theme(ProfWin *window, const char *const command, gchar **args)
             } else {
                 ui_hide_all_room_rosters();
             }
-            ui_redraw();
+            ui_resize();
             cons_show("Loaded theme: %s", args[1]);
         } else {
             cons_show("Couldn't find theme: %s", args[1]);
@@ -2078,7 +2136,7 @@ cmd_msg(ProfWin *window, const char *const command, gchar **args)
             g_string_free(full_jid, TRUE);
 
         } else {
-            ui_current_print_line("No such participant \"%s\" in room.", usr);
+            win_println(window, THEME_DEFAULT, '-', "No such participant \"%s\" in room.", usr);
         }
 
         return TRUE;
@@ -2122,16 +2180,16 @@ cmd_group(ProfWin *window, const char *const command, gchar **args)
 
     // list all groups
     if (args[0] == NULL) {
-        GSList *groups = roster_get_groups();
-        GSList *curr = groups;
+        GList *groups = roster_get_groups();
+        GList *curr = groups;
         if (curr) {
             cons_show("Groups:");
             while (curr) {
                 cons_show("  %s", curr->data);
-                curr = g_slist_next(curr);
+                curr = g_list_next(curr);
             }
 
-            g_slist_free_full(groups, g_free);
+            g_list_free_full(groups, g_free);
         } else {
             cons_show("No groups.");
         }
@@ -3108,15 +3166,15 @@ cmd_status(ProfWin *window, const char *const command, gchar **args)
                 if (occupant) {
                     win_show_occupant(window, occupant);
                 } else {
-                    win_vprint(window, '-', 0, NULL, 0, 0, "", "No such participant \"%s\" in room.", usr);
+                    win_println(window, THEME_DEFAULT, '-', "No such participant \"%s\" in room.", usr);
                 }
             } else {
-                ui_current_print_line("You must specify a nickname.");
+                win_println(window, THEME_DEFAULT, '-', "You must specify a nickname.");
             }
             break;
         case WIN_CHAT:
             if (usr) {
-                ui_current_print_line("No parameter required when in chat.");
+                win_println(window, THEME_DEFAULT, '-', "No parameter required when in chat.");
             } else {
                 ProfChatWin *chatwin = (ProfChatWin*)window;
                 assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
@@ -3124,13 +3182,13 @@ cmd_status(ProfWin *window, const char *const command, gchar **args)
                 if (pcontact) {
                     win_show_contact(window, pcontact);
                 } else {
-                    win_println(window, 0, "Error getting contact info.");
+                    win_println(window, THEME_DEFAULT, '-', "Error getting contact info.");
                 }
             }
             break;
         case WIN_PRIVATE:
             if (usr) {
-                ui_current_print_line("No parameter required when in chat.");
+                win_println(window, THEME_DEFAULT, '-', "No parameter required when in chat.");
             } else {
                 ProfPrivateWin *privatewin = (ProfPrivateWin*)window;
                 assert(privatewin->memcheck == PROFPRIVATEWIN_MEMCHECK);
@@ -3139,7 +3197,7 @@ cmd_status(ProfWin *window, const char *const command, gchar **args)
                 if (occupant) {
                     win_show_occupant(window, occupant);
                 } else {
-                    win_println(window, 0, "Error getting contact info.");
+                    win_println(window, THEME_DEFAULT, '-', "Error getting contact info.");
                 }
                 jid_destroy(jid);
             }
@@ -3184,7 +3242,7 @@ cmd_info(ProfWin *window, const char *const command, gchar **args)
                 if (occupant) {
                     win_show_occupant_info(window, mucwin->roomjid, occupant);
                 } else {
-                    ui_current_print_line("No such occupant \"%s\" in room.", usr);
+                    win_println(window, THEME_DEFAULT, '-', "No such occupant \"%s\" in room.", usr);
                 }
             } else {
                 ProfMucWin *mucwin = (ProfMucWin*)window;
@@ -3196,7 +3254,7 @@ cmd_info(ProfWin *window, const char *const command, gchar **args)
             break;
         case WIN_CHAT:
             if (usr) {
-                ui_current_print_line("No parameter required when in chat.");
+                win_println(window, THEME_DEFAULT, '-', "No parameter required when in chat.");
             } else {
                 ProfChatWin *chatwin = (ProfChatWin*)window;
                 assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
@@ -3204,13 +3262,13 @@ cmd_info(ProfWin *window, const char *const command, gchar **args)
                 if (pcontact) {
                     win_show_info(window, pcontact);
                 } else {
-                    win_println(window, 0, "Error getting contact info.");
+                    win_println(window, THEME_DEFAULT, '-', "Error getting contact info.");
                 }
             }
             break;
         case WIN_PRIVATE:
             if (usr) {
-                ui_current_print_line("No parameter required when in chat.");
+                win_println(window, THEME_DEFAULT, '-', "No parameter required when in chat.");
             } else {
                 ProfPrivateWin *privatewin = (ProfPrivateWin*)window;
                 assert(privatewin->memcheck == PROFPRIVATEWIN_MEMCHECK);
@@ -3219,7 +3277,7 @@ cmd_info(ProfWin *window, const char *const command, gchar **args)
                 if (occupant) {
                     win_show_occupant_info(window, jid->barejid, occupant);
                 } else {
-                    win_println(window, 0, "Error getting contact info.");
+                    win_println(window, THEME_DEFAULT, '-', "Error getting contact info.");
                 }
                 jid_destroy(jid);
             }
@@ -3372,7 +3430,7 @@ cmd_software(ProfWin *window, const char *const command, gchar **args)
                     iq_send_software_version(fulljid->str);
                     g_string_free(fulljid, TRUE);
                 } else {
-                    win_println(window, 0, "Unknown resource for /software command.");
+                    win_println(window, THEME_DEFAULT, '-', "Unknown resource for /software command.");
                 }
             }
             break;
@@ -3422,17 +3480,20 @@ cmd_join(ProfWin *window, const char *const command, gchar **args)
     if (args[0] == NULL) {
         char *account_name = session_get_account_name();
         ProfAccount *account = accounts_get_account(account_name);
+        if (account->muc_service) {
+            GString *room_str = g_string_new("");
+            char *uuid = connection_create_uuid();
+            g_string_append_printf(room_str, "private-chat-%s@%s", uuid, account->muc_service);
+            connection_free_uuid(uuid);
 
-        GString *room_str = g_string_new("");
-        char *uuid = connection_create_uuid();
-        g_string_append_printf(room_str, "private-chat-%s@%s", uuid, account->muc_service);
-        connection_free_uuid(uuid);
+            presence_join_room(room_str->str, account->muc_nick, NULL);
+            muc_join(room_str->str, account->muc_nick, NULL, FALSE);
 
-        presence_join_room(room_str->str, account->muc_nick, NULL);
-        muc_join(room_str->str, account->muc_nick, NULL, FALSE);
-
-        g_string_free(room_str, TRUE);
-        account_free(account);
+            g_string_free(room_str, TRUE);
+            account_free(account);
+        } else {
+            cons_show("Account MUC service property not found.");
+        }
 
         return TRUE;
     }
@@ -3447,7 +3508,6 @@ cmd_join(ProfWin *window, const char *const command, gchar **args)
     char *room = NULL;
     char *nick = NULL;
     char *passwd = NULL;
-    GString *room_str = g_string_new("");
     char *account_name = session_get_account_name();
     ProfAccount *account = accounts_get_account(account_name);
 
@@ -3456,11 +3516,18 @@ cmd_join(ProfWin *window, const char *const command, gchar **args)
         room = args[0];
 
     // server not supplied (room), use account preference
-    } else {
+    } else if (account->muc_service) {
+        GString *room_str = g_string_new("");
         g_string_append(room_str, args[0]);
         g_string_append(room_str, "@");
         g_string_append(room_str, account->muc_service);
         room = room_str->str;
+        g_string_free(room_str, FALSE);
+
+    // no account preference
+    } else {
+        cons_show("Account MUC service property not found.");
+        return TRUE;
     }
 
     // Additional args supplied
@@ -3498,7 +3565,6 @@ cmd_join(ProfWin *window, const char *const command, gchar **args)
     }
 
     jid_destroy(room_arg);
-    g_string_free(room_str, TRUE);
     account_free(account);
 
     return TRUE;
@@ -3543,9 +3609,9 @@ cmd_invite(ProfWin *window, const char *const command, gchar **args)
 gboolean
 cmd_invites(ProfWin *window, const char *const command, gchar **args)
 {
-    GSList *invites = muc_invites();
+    GList *invites = muc_invites();
     cons_show_room_invites(invites);
-    g_slist_free_full(invites, g_free);
+    g_list_free_full(invites, g_free);
     return TRUE;
 }
 
@@ -3573,7 +3639,7 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
     DataForm *form = confwin->form;
     if (form) {
         if (!form_tag_exists(form, tag)) {
-            ui_current_print_line("Form does not contain a field with tag %s", tag);
+            win_println(window, THEME_DEFAULT, '-', "Form does not contain a field with tag %s", tag);
             return TRUE;
         }
 
@@ -3589,16 +3655,16 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
             value = args[0];
             if (g_strcmp0(value, "on") == 0) {
                 form_set_value(form, tag, "1");
-                ui_current_print_line("Field updated...");
+                win_println(window, THEME_DEFAULT, '-', "Field updated...");
                 mucconfwin_show_form_field(confwin, form, tag);
             } else if (g_strcmp0(value, "off") == 0) {
                 form_set_value(form, tag, "0");
-                ui_current_print_line("Field updated...");
+                win_println(window, THEME_DEFAULT, '-', "Field updated...");
                 mucconfwin_show_form_field(confwin, form, tag);
             } else {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
             }
             break;
 
@@ -3607,24 +3673,24 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
         case FIELD_JID_SINGLE:
             value = args[0];
             if (value == NULL) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
             } else {
                 form_set_value(form, tag, value);
-                ui_current_print_line("Field updated...");
+                win_println(window, THEME_DEFAULT, '-', "Field updated...");
                 mucconfwin_show_form_field(confwin, form, tag);
             }
             break;
         case FIELD_LIST_SINGLE:
             value = args[0];
             if ((value == NULL) || !form_field_contains_option(form, tag, value)) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
             } else {
                 form_set_value(form, tag, value);
-                ui_current_print_line("Field updated...");
+                win_println(window, THEME_DEFAULT, '-', "Field updated...");
                 mucconfwin_show_form_field(confwin, form, tag);
             }
             break;
@@ -3635,51 +3701,51 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
                 value = args[1];
             }
             if ((g_strcmp0(cmd, "add") != 0) && (g_strcmp0(cmd, "remove"))) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (value == NULL) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (g_strcmp0(cmd, "add") == 0) {
                 form_add_value(form, tag, value);
-                ui_current_print_line("Field updated...");
+                win_println(window, THEME_DEFAULT, '-', "Field updated...");
                 mucconfwin_show_form_field(confwin, form, tag);
                 break;
             }
             if (g_strcmp0(args[0], "remove") == 0) {
                 if (!g_str_has_prefix(value, "val")) {
-                    ui_current_print_line("Invalid command, usage:");
+                    win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                     mucconfwin_field_help(confwin, tag);
-                    ui_current_print_line("");
+                    win_println(window, THEME_DEFAULT, '-', "");
                     break;
                 }
                 if (strlen(value) < 4) {
-                    ui_current_print_line("Invalid command, usage:");
+                    win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                     mucconfwin_field_help(confwin, tag);
-                    ui_current_print_line("");
+                    win_println(window, THEME_DEFAULT, '-', "");
                     break;
                 }
 
                 int index = strtol(&value[3], NULL, 10);
                 if ((index < 1) || (index > form_get_value_count(form, tag))) {
-                    ui_current_print_line("Invalid command, usage:");
+                    win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                     mucconfwin_field_help(confwin, tag);
-                    ui_current_print_line("");
+                    win_println(window, THEME_DEFAULT, '-', "");
                     break;
                 }
 
                 removed = form_remove_text_multi_value(form, tag, index);
                 if (removed) {
-                    ui_current_print_line("Field updated...");
+                    win_println(window, THEME_DEFAULT, '-', "Field updated...");
                     mucconfwin_show_form_field(confwin, form, tag);
                 } else {
-                    ui_current_print_line("Could not remove %s from %s", value, tag);
+                    win_println(window, THEME_DEFAULT, '-', "Could not remove %s from %s", value, tag);
                 }
             }
             break;
@@ -3689,15 +3755,15 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
                 value = args[1];
             }
             if ((g_strcmp0(cmd, "add") != 0) && (g_strcmp0(cmd, "remove"))) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (value == NULL) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (g_strcmp0(args[0], "add") == 0) {
@@ -3705,15 +3771,15 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
                 if (valid) {
                     added = form_add_unique_value(form, tag, value);
                     if (added) {
-                        ui_current_print_line("Field updated...");
+                        win_println(window, THEME_DEFAULT, '-', "Field updated...");
                         mucconfwin_show_form_field(confwin, form, tag);
                     } else {
-                        ui_current_print_line("Value %s already selected for %s", value, tag);
+                        win_println(window, THEME_DEFAULT, '-', "Value %s already selected for %s", value, tag);
                     }
                 } else {
-                    ui_current_print_line("Invalid command, usage:");
+                    win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                     mucconfwin_field_help(confwin, tag);
-                    ui_current_print_line("");
+                    win_println(window, THEME_DEFAULT, '-', "");
                 }
                 break;
             }
@@ -3722,15 +3788,15 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
                 if (valid == TRUE) {
                     removed = form_remove_value(form, tag, value);
                     if (removed) {
-                        ui_current_print_line("Field updated...");
+                        win_println(window, THEME_DEFAULT, '-', "Field updated...");
                         mucconfwin_show_form_field(confwin, form, tag);
                     } else {
-                        ui_current_print_line("Value %s is not currently set for %s", value, tag);
+                        win_println(window, THEME_DEFAULT, '-', "Value %s is not currently set for %s", value, tag);
                     }
                 } else {
-                    ui_current_print_line("Invalid command, usage:");
+                    win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                     mucconfwin_field_help(confwin, tag);
-                    ui_current_print_line("");
+                    win_println(window, THEME_DEFAULT, '-', "");
                 }
             }
             break;
@@ -3740,34 +3806,34 @@ cmd_form_field(ProfWin *window, char *tag, gchar **args)
                 value = args[1];
             }
             if ((g_strcmp0(cmd, "add") != 0) && (g_strcmp0(cmd, "remove"))) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (value == NULL) {
-                ui_current_print_line("Invalid command, usage:");
+                win_println(window, THEME_DEFAULT, '-', "Invalid command, usage:");
                 mucconfwin_field_help(confwin, tag);
-                ui_current_print_line("");
+                win_println(window, THEME_DEFAULT, '-', "");
                 break;
             }
             if (g_strcmp0(args[0], "add") == 0) {
                 added = form_add_unique_value(form, tag, value);
                 if (added) {
-                    ui_current_print_line("Field updated...");
+                    win_println(window, THEME_DEFAULT, '-', "Field updated...");
                     mucconfwin_show_form_field(confwin, form, tag);
                 } else {
-                    ui_current_print_line("JID %s already exists in %s", value, tag);
+                    win_println(window, THEME_DEFAULT, '-', "JID %s already exists in %s", value, tag);
                 }
                 break;
             }
             if (g_strcmp0(args[0], "remove") == 0) {
                 removed = form_remove_value(form, tag, value);
                 if (removed) {
-                    ui_current_print_line("Field updated...");
+                    win_println(window, THEME_DEFAULT, '-', "Field updated...");
                     mucconfwin_show_form_field(confwin, form, tag);
                 } else {
-                    ui_current_print_line("Field %s does not contain %s", tag, value);
+                    win_println(window, THEME_DEFAULT, '-', "Field %s does not contain %s", tag, value);
                 }
             }
             break;
@@ -3827,7 +3893,7 @@ cmd_form(ProfWin *window, const char *const command, gchar **args)
 
             ui_show_lines((ProfWin*) confwin, help_text);
         }
-        ui_current_print_line("");
+        win_println(window, THEME_DEFAULT, '-', "");
         return TRUE;
     }
 
@@ -3881,7 +3947,7 @@ cmd_kick(ProfWin *window, const char *const command, gchar **args)
             char *reason = args[1];
             iq_room_kick_occupant(mucwin->roomjid, nick, reason);
         } else {
-            win_vprint((ProfWin*) mucwin, '!', 0, NULL, 0, 0, "", "Occupant does not exist: %s", nick);
+            win_println(window, THEME_DEFAULT, '!', "Occupant does not exist: %s", nick);
         }
     } else {
         cons_bad_cmd_usage(command);
@@ -3939,10 +4005,10 @@ cmd_subject(ProfWin *window, const char *const command, gchar **args)
     if (args[0] == NULL) {
         char *subject = muc_subject(mucwin->roomjid);
         if (subject) {
-            win_vprint(window, '!', 0, NULL, NO_EOL, THEME_ROOMINFO, "", "Room subject: ");
-            win_vprint(window, '!', 0, NULL, NO_DATE, 0, "", "%s", subject);
+            win_print(window, THEME_ROOMINFO, '!', "Room subject: ");
+            win_appendln(window, THEME_DEFAULT, "%s", subject);
         } else {
-            win_print(window, '!', 0, NULL, 0, THEME_ROOMINFO, "", "Room has no subject");
+            win_println(window, THEME_ROOMINFO, '!', "Room has no subject");
         }
         return TRUE;
     }
@@ -3974,7 +4040,7 @@ cmd_subject(ProfWin *window, const char *const command, gchar **args)
                 message_send_groupchat_subject(mucwin->roomjid, new_subject->str);
                 g_string_free(new_subject, TRUE);
             } else {
-                win_vprint(window, '!', 0, NULL, NO_EOL, THEME_ROOMINFO, "", "Room does not have a subject, use /subject set <subject>");
+                win_print(window, THEME_ROOMINFO, '!', "Room does not have a subject, use /subject set <subject>");
             }
         } else {
             cons_bad_cmd_usage(command);
@@ -3991,7 +4057,7 @@ cmd_subject(ProfWin *window, const char *const command, gchar **args)
                 message_send_groupchat_subject(mucwin->roomjid, new_subject->str);
                 g_string_free(new_subject, TRUE);
             } else {
-                win_vprint(window, '!', 0, NULL, NO_EOL, THEME_ROOMINFO, "", "Room does not have a subject, use /subject set <subject>");
+                win_print(window, THEME_ROOMINFO, '!', "Room does not have a subject, use /subject set <subject>");
             }
         } else {
             cons_bad_cmd_usage(command);
@@ -4050,7 +4116,7 @@ cmd_affiliation(ProfWin *window, const char *const command, gchar **args)
             iq_room_affiliation_list(mucwin->roomjid, "member");
             iq_room_affiliation_list(mucwin->roomjid, "outcast");
         } else if (g_strcmp0(affiliation, "none") == 0) {
-            win_print((ProfWin*) mucwin, '!', 0, NULL, 0, 0, "", "Cannot list users with no affiliation.");
+            win_println(window, THEME_DEFAULT, '!', "Cannot list users with no affiliation.");
         } else {
             iq_room_affiliation_list(mucwin->roomjid, affiliation);
         }
@@ -4118,7 +4184,7 @@ cmd_role(ProfWin *window, const char *const command, gchar **args)
             iq_room_role_list(mucwin->roomjid, "participant");
             iq_room_role_list(mucwin->roomjid, "visitor");
         } else if (g_strcmp0(role, "none") == 0) {
-            win_print((ProfWin*) mucwin, '!', 0, NULL, 0, 0, "", "Cannot list users with no role.");
+            win_println(window, THEME_DEFAULT, '!', "Cannot list users with no role.");
         } else {
             iq_room_role_list(mucwin->roomjid, role);
         }
@@ -4180,12 +4246,12 @@ cmd_room(ProfWin *window, const char *const command, gchar **args)
     if (g_strcmp0(args[0], "accept") == 0) {
         gboolean requires_config = muc_requires_config(mucwin->roomjid);
         if (!requires_config) {
-            win_print(window, '!', 0, NULL, 0, THEME_ROOMINFO, "", "Current room does not require configuration.");
+            win_println(window, THEME_ROOMINFO, '!', "Current room does not require configuration.");
             return TRUE;
         } else {
             iq_confirm_instant_room(mucwin->roomjid);
             muc_set_requires_config(mucwin->roomjid, FALSE);
-            win_print(window, '!', 0, NULL, 0, THEME_ROOMINFO, "", "Room unlocked.");
+            win_println(window, THEME_ROOMINFO, '!', "Room unlocked.");
             return TRUE;
         }
     }
@@ -4212,13 +4278,6 @@ cmd_room(ProfWin *window, const char *const command, gchar **args)
 gboolean
 cmd_occupants(ProfWin *window, const char *const command, gchar **args)
 {
-    jabber_conn_status_t conn_status = connection_get_status();
-
-    if (conn_status != JABBER_CONNECTED) {
-        cons_show("You are not currently connected.");
-        return TRUE;
-    }
-
     if (g_strcmp0(args[0], "size") == 0) {
         if (!args[1]) {
             cons_bad_cmd_usage(command);
@@ -4265,6 +4324,12 @@ cmd_occupants(ProfWin *window, const char *const command, gchar **args)
         }
     }
 
+    jabber_conn_status_t conn_status = connection_get_status();
+    if (conn_status != JABBER_CONNECTED) {
+        cons_show("You are not currently connected.");
+        return TRUE;
+    }
+
     if (window->type != WIN_MUC) {
         cons_show("Cannot apply setting when not in chat room.");
         return TRUE;
@@ -4304,13 +4369,18 @@ cmd_rooms(ProfWin *window, const char *const command, gchar **args)
         return TRUE;
     }
 
-    if (args[0] == NULL) {
-        ProfAccount *account = accounts_get_account(session_get_account_name());
-        iq_room_list_request(account->muc_service);
-        account_free(account);
-    } else {
+    if (args[0]) {
         iq_room_list_request(args[0]);
+        return TRUE;
     }
+
+    ProfAccount *account = accounts_get_account(session_get_account_name());
+    if (account->muc_service) {
+        iq_room_list_request(account->muc_service);
+    } else {
+        cons_show("Account MUC service property not found.");
+    }
+    account_free(account);
 
     return TRUE;
 }
@@ -4326,7 +4396,7 @@ cmd_bookmark(ProfWin *window, const char *const command, gchar **args)
     }
 
     gchar *cmd = args[0];
-    if (window->type == WIN_MUC && cmd == NULL) {
+    if (window->type == WIN_MUC && (cmd == NULL || g_strcmp0(cmd, "add") == 0)) {
         // default to current nickname, password, and autojoin "on"
         ProfMucWin *mucwin = (ProfMucWin*)window;
         assert(mucwin->memcheck == PROFMUCWIN_MEMCHECK);
@@ -4334,107 +4404,127 @@ cmd_bookmark(ProfWin *window, const char *const command, gchar **args)
         char *password = muc_password(mucwin->roomjid);
         gboolean added = bookmark_add(mucwin->roomjid, nick, password, "on");
         if (added) {
-            ui_current_print_formatted_line('!', 0, "Bookmark added for %s.", mucwin->roomjid);
+            win_println(window, THEME_DEFAULT, '!', "Bookmark added for %s.", mucwin->roomjid);
         } else {
-            ui_current_print_formatted_line('!', 0, "Bookmark already exists for %s.", mucwin->roomjid);
+            win_println(window, THEME_DEFAULT, '!', "Bookmark already exists for %s.", mucwin->roomjid);
         }
         return TRUE;
-
-    } else {
-        if (cmd == NULL) {
-            cons_bad_cmd_usage(command);
-            return TRUE;
-        }
-
-        if (strcmp(cmd, "invites") == 0) {
-            if (g_strcmp0(args[1], "on") == 0) {
-                prefs_set_boolean(PREF_BOOKMARK_INVITE, TRUE);
-                cons_show("Auto bookmarking accepted invites enabled.");
-            } else if (g_strcmp0(args[1], "off") == 0) {
-                prefs_set_boolean(PREF_BOOKMARK_INVITE, FALSE);
-                cons_show("Auto bookmarking accepted invites disabled.");
-            } else {
-                cons_bad_cmd_usage(command);
-                cons_show("");
-            }
-            return TRUE;
-        } else if (strcmp(cmd, "list") == 0) {
-            GList *bookmarks = bookmark_get_list();
-            cons_show_bookmarks(bookmarks);
-            g_list_free(bookmarks);
-        } else {
-            char *jid = args[1];
-            if (jid == NULL) {
-                cons_bad_cmd_usage(command);
-                cons_show("");
-                return TRUE;
-            }
-
-            if (strcmp(cmd, "remove") == 0) {
-                gboolean removed = bookmark_remove(jid);
-                if (removed) {
-                    cons_show("Bookmark removed for %s.", jid);
-                } else {
-                    cons_show("No bookmark exists for %s.", jid);
-                }
-                return TRUE;
-            }
-
-            if (strcmp(cmd, "join") == 0) {
-                gboolean joined = bookmark_join(jid);
-                if (!joined) {
-                    cons_show("No bookmark exists for %s.", jid);
-                }
-                return TRUE;
-            }
-
-            gchar *opt_keys[] = { "autojoin", "nick", "password", NULL };
-            gboolean parsed;
-
-            GHashTable *options = parse_options(&args[2], opt_keys, &parsed);
-            if (!parsed) {
-                cons_bad_cmd_usage(command);
-                cons_show("");
-                return TRUE;
-            }
-
-            char *nick = g_hash_table_lookup(options, "nick");
-            char *password = g_hash_table_lookup(options, "password");
-            char *autojoin = g_hash_table_lookup(options, "autojoin");
-
-            if (autojoin) {
-                if ((strcmp(autojoin, "on") != 0) && (strcmp(autojoin, "off") != 0)) {
-                    cons_bad_cmd_usage(command);
-                    cons_show("");
-                    return TRUE;
-                }
-            }
-
-            if (strcmp(cmd, "add") == 0) {
-                if (strchr(jid, '@')==NULL) {
-                    cons_show("Can't add bookmark with JID '%s'; should be '%s@domain.tld'", jid, jid);
-                } else {
-                    gboolean added = bookmark_add(jid, nick, password, autojoin);
-                    if (added) {
-                        cons_show("Bookmark added for %s.", jid);
-                    } else {
-                        cons_show("Bookmark already exists, use /bookmark update to edit.");
-                    }
-                }
-            } else if (strcmp(cmd, "update") == 0) {
-                gboolean updated = bookmark_update(jid, nick, password, autojoin);
-                if (updated) {
-                    cons_show("Bookmark updated.");
-                } else {
-                    cons_show("No bookmark exists for %s.", jid);
-                }
-            } else {
-                cons_bad_cmd_usage(command);
-            }
-
-            options_destroy(options);
-        }
     }
+
+    if (window->type == WIN_MUC && g_strcmp0(cmd, "remove") == 0) {
+        ProfMucWin *mucwin = (ProfMucWin*)window;
+        assert(mucwin->memcheck == PROFMUCWIN_MEMCHECK);
+        gboolean removed = bookmark_remove(mucwin->roomjid);
+        if (removed) {
+            win_println(window, THEME_DEFAULT, '!', "Bookmark removed for %s.", mucwin->roomjid);
+        } else {
+            win_println(window, THEME_DEFAULT, '!', "Bookmark does not exist for %s.", mucwin->roomjid);
+        }
+        return TRUE;
+    }
+
+    if (cmd == NULL) {
+        cons_bad_cmd_usage(command);
+        return TRUE;
+    }
+
+    if (strcmp(cmd, "invites") == 0) {
+        if (g_strcmp0(args[1], "on") == 0) {
+            prefs_set_boolean(PREF_BOOKMARK_INVITE, TRUE);
+            cons_show("Auto bookmarking accepted invites enabled.");
+        } else if (g_strcmp0(args[1], "off") == 0) {
+            prefs_set_boolean(PREF_BOOKMARK_INVITE, FALSE);
+            cons_show("Auto bookmarking accepted invites disabled.");
+        } else {
+            cons_bad_cmd_usage(command);
+            cons_show("");
+        }
+        return TRUE;
+    }
+
+    if (strcmp(cmd, "list") == 0) {
+        GList *bookmarks = bookmark_get_list();
+        cons_show_bookmarks(bookmarks);
+        g_list_free(bookmarks);
+        return TRUE;
+    }
+
+    char *jid = args[1];
+    if (jid == NULL) {
+        cons_bad_cmd_usage(command);
+        cons_show("");
+        return TRUE;
+    }
+    if (strchr(jid, '@') == NULL) {
+        cons_show("Invalid room, must be of the form room@domain.tld");
+        cons_show("");
+        return TRUE;
+    }
+
+    if (strcmp(cmd, "remove") == 0) {
+        gboolean removed = bookmark_remove(jid);
+        if (removed) {
+            cons_show("Bookmark removed for %s.", jid);
+        } else {
+            cons_show("No bookmark exists for %s.", jid);
+        }
+        return TRUE;
+    }
+
+    if (strcmp(cmd, "join") == 0) {
+        gboolean joined = bookmark_join(jid);
+        if (!joined) {
+            cons_show("No bookmark exists for %s.", jid);
+        }
+        return TRUE;
+    }
+
+    gchar *opt_keys[] = { "autojoin", "nick", "password", NULL };
+    gboolean parsed;
+
+    GHashTable *options = parse_options(&args[2], opt_keys, &parsed);
+    if (!parsed) {
+        cons_bad_cmd_usage(command);
+        cons_show("");
+        return TRUE;
+    }
+
+    char *autojoin = g_hash_table_lookup(options, "autojoin");
+
+    if (autojoin && ((strcmp(autojoin, "on") != 0) && (strcmp(autojoin, "off") != 0))) {
+        cons_bad_cmd_usage(command);
+        cons_show("");
+        options_destroy(options);
+        return TRUE;
+    }
+
+    char *nick = g_hash_table_lookup(options, "nick");
+    char *password = g_hash_table_lookup(options, "password");
+
+    if (strcmp(cmd, "add") == 0) {
+        gboolean added = bookmark_add(jid, nick, password, autojoin);
+        if (added) {
+            cons_show("Bookmark added for %s.", jid);
+        } else {
+            cons_show("Bookmark already exists, use /bookmark update to edit.");
+        }
+        options_destroy(options);
+        return TRUE;
+    }
+
+    if (strcmp(cmd, "update") == 0) {
+        gboolean updated = bookmark_update(jid, nick, password, autojoin);
+        if (updated) {
+            cons_show("Bookmark updated.");
+        } else {
+            cons_show("No bookmark exists for %s.", jid);
+        }
+        options_destroy(options);
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+    options_destroy(options);
 
     return TRUE;
 }
@@ -4662,13 +4752,13 @@ cmd_tiny(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (!tinyurl_valid(url)) {
-        win_vprint(window, '-', 0, NULL, 0, THEME_ERROR, "", "/tiny, badly formed URL: %s", url);
+        win_println(window, THEME_ERROR, '-', "/tiny, badly formed URL: %s", url);
         return TRUE;
     }
 
     char *tiny = tinyurl_get(url);
     if (!tiny) {
-        win_print(window, '-', 0, NULL, 0, THEME_ERROR, "", "Couldn't create tinyurl.");
+        win_println(window, THEME_ERROR, '-', "Couldn't create tinyurl.");
         return TRUE;
     }
 
@@ -4713,24 +4803,14 @@ cmd_clear(ProfWin *window, const char *const command, gchar **args)
 gboolean
 cmd_leave(ProfWin *window, const char *const command, gchar **args)
 {
-    jabber_conn_status_t conn_status = connection_get_status();
-    int index = wins_get_current_num();
-
-    if (window->type != WIN_MUC) {
-        cons_show("You can only use the /leave command in a chat room.");
+    if (window->type != WIN_MUC && window->type != WIN_CHAT && window->type != WIN_PRIVATE) {
+        cons_show("The /leave command is only valid in chat, or chat room windows.");
         cons_alert();
         return TRUE;
     }
 
-    // handle leaving rooms, or chat
-    if (conn_status == JABBER_CONNECTED) {
-        ui_close_connected_win(index);
-    }
-
-    // close the window
-    ui_close_win(index);
-
-    return TRUE;
+    // use /close behaviour
+    return cmd_close(window, "/leave", args);
 }
 
 gboolean
@@ -5057,7 +5137,7 @@ cmd_states(ProfWin *window, const char *const command, gchar **args)
 }
 
 gboolean
-cmd_titlebar(ProfWin *window, const char *const command, gchar **args)
+cmd_wintitle(ProfWin *window, const char *const command, gchar **args)
 {
     if (g_strcmp0(args[0], "show") != 0 && g_strcmp0(args[0], "goodbye") != 0) {
         cons_bad_cmd_usage(command);
@@ -5067,9 +5147,9 @@ cmd_titlebar(ProfWin *window, const char *const command, gchar **args)
         ui_clear_win_title();
     }
     if (g_strcmp0(args[0], "show") == 0) {
-        _cmd_set_boolean_preference(args[1], command, "Titlebar show", PREF_TITLEBAR_SHOW);
+        _cmd_set_boolean_preference(args[1], command, "Window title show", PREF_WINTITLE_SHOW);
     } else {
-        _cmd_set_boolean_preference(args[1], command, "Titlebar goodbye", PREF_TITLEBAR_GOODBYE);
+        _cmd_set_boolean_preference(args[1], command, "Window title goodbye", PREF_WINTITLE_GOODBYE);
     }
 
     return TRUE;
@@ -5118,50 +5198,50 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
     if (!args[0]) {
         ProfWin *current = wins_get_current();
         if (current->type == WIN_MUC) {
-            win_println(current, 0, "");
+            win_println(current, THEME_DEFAULT, '-', "");
             ProfMucWin *mucwin = (ProfMucWin *)current;
 
-            win_vprintln_ch(window, '!', "Notification settings for %s:", mucwin->roomjid);
+            win_println(window, THEME_DEFAULT, '!', "Notification settings for %s:", mucwin->roomjid);
             if (prefs_has_room_notify(mucwin->roomjid)) {
                 if (prefs_get_room_notify(mucwin->roomjid)) {
-                    win_vprintln_ch(window, '!', "  Message  : ON");
+                    win_println(window, THEME_DEFAULT, '!', "  Message  : ON");
                 } else {
-                    win_vprintln_ch(window, '!', "  Message  : OFF");
+                    win_println(window, THEME_DEFAULT, '!', "  Message  : OFF");
                 }
             } else {
                 if (prefs_get_boolean(PREF_NOTIFY_ROOM)) {
-                    win_vprintln_ch(window, '!', "  Message  : ON (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Message  : ON (global setting)");
                 } else {
-                    win_vprintln_ch(window, '!', "  Message  : OFF (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Message  : OFF (global setting)");
                 }
             }
             if (prefs_has_room_notify_mention(mucwin->roomjid)) {
                 if (prefs_get_room_notify_mention(mucwin->roomjid)) {
-                    win_vprintln_ch(window, '!', "  Mention  : ON");
+                    win_println(window, THEME_DEFAULT, '!', "  Mention  : ON");
                 } else {
-                    win_vprintln_ch(window, '!', "  Mention  : OFF");
+                    win_println(window, THEME_DEFAULT, '!', "  Mention  : OFF");
                 }
             } else {
                 if (prefs_get_boolean(PREF_NOTIFY_ROOM_MENTION)) {
-                    win_vprintln_ch(window, '!', "  Mention  : ON (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Mention  : ON (global setting)");
                 } else {
-                    win_vprintln_ch(window, '!', "  Mention  : OFF (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Mention  : OFF (global setting)");
                 }
             }
             if (prefs_has_room_notify_trigger(mucwin->roomjid)) {
                 if (prefs_get_room_notify_trigger(mucwin->roomjid)) {
-                    win_vprintln_ch(window, '!', "  Triggers : ON");
+                    win_println(window, THEME_DEFAULT, '!', "  Triggers : ON");
                 } else {
-                    win_vprintln_ch(window, '!', "  Triggers : OFF");
+                    win_println(window, THEME_DEFAULT, '!', "  Triggers : OFF");
                 }
             } else {
                 if (prefs_get_boolean(PREF_NOTIFY_ROOM_TRIGGER)) {
-                    win_vprintln_ch(window, '!', "  Triggers : ON (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Triggers : ON (global setting)");
                 } else {
-                    win_vprintln_ch(window, '!', "  Triggers : OFF (global setting)");
+                    win_println(window, THEME_DEFAULT, '!', "  Triggers : OFF (global setting)");
                 }
             }
-            win_println(current, 0, "");
+            win_println(current, THEME_DEFAULT, '-', "");
         } else {
             cons_show("");
             cons_notify_setting();
@@ -5375,7 +5455,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
             } else {
                 ProfMucWin *mucwin = (ProfMucWin*)window;
                 prefs_set_room_notify(mucwin->roomjid, TRUE);
-                win_vprintln_ch(window, '!', "Notifications enabled for %s", mucwin->roomjid);
+                win_println(window, THEME_DEFAULT, '!', "Notifications enabled for %s", mucwin->roomjid);
             }
         }
     } else if (g_strcmp0(args[0], "off") == 0) {
@@ -5390,7 +5470,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
             } else {
                 ProfMucWin *mucwin = (ProfMucWin*)window;
                 prefs_set_room_notify(mucwin->roomjid, FALSE);
-                win_vprintln_ch(window, '!', "Notifications disabled for %s", mucwin->roomjid);
+                win_println(window, THEME_DEFAULT, '!', "Notifications disabled for %s", mucwin->roomjid);
             }
         }
     } else if (g_strcmp0(args[0], "mention") == 0) {
@@ -5406,7 +5486,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
                 } else {
                     ProfMucWin *mucwin = (ProfMucWin*)window;
                     prefs_set_room_notify_mention(mucwin->roomjid, TRUE);
-                    win_vprintln_ch(window, '!', "Mention notifications enabled for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "Mention notifications enabled for %s", mucwin->roomjid);
                 }
             } else if (g_strcmp0(args[1], "off") == 0) {
                 ProfWin *window = wins_get_current();
@@ -5415,7 +5495,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
                 } else {
                     ProfMucWin *mucwin = (ProfMucWin*)window;
                     prefs_set_room_notify_mention(mucwin->roomjid, FALSE);
-                    win_vprintln_ch(window, '!', "Mention notifications disabled for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "Mention notifications disabled for %s", mucwin->roomjid);
                 }
             } else {
                 cons_bad_cmd_usage(command);
@@ -5434,7 +5514,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
                 } else {
                     ProfMucWin *mucwin = (ProfMucWin*)window;
                     prefs_set_room_notify_trigger(mucwin->roomjid, TRUE);
-                    win_vprintln_ch(window, '!', "Custom trigger notifications enabled for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "Custom trigger notifications enabled for %s", mucwin->roomjid);
                 }
             } else if (g_strcmp0(args[1], "off") == 0) {
                 ProfWin *window = wins_get_current();
@@ -5443,7 +5523,7 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
                 } else {
                     ProfMucWin *mucwin = (ProfMucWin*)window;
                     prefs_set_room_notify_trigger(mucwin->roomjid, FALSE);
-                    win_vprintln_ch(window, '!', "Custom trigger notifications disabled for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "Custom trigger notifications disabled for %s", mucwin->roomjid);
                 }
             } else {
                 cons_bad_cmd_usage(command);
@@ -5462,9 +5542,9 @@ cmd_notify(ProfWin *window, const char *const command, gchar **args)
                 ProfMucWin *mucwin = (ProfMucWin*)window;
                 gboolean res = prefs_reset_room_notify(mucwin->roomjid);
                 if (res) {
-                    win_vprintln_ch(window, '!', "Notification settings set to global defaults for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "Notification settings set to global defaults for %s", mucwin->roomjid);
                 } else {
-                    win_vprintln_ch(window, '!', "No custom notification settings for %s", mucwin->roomjid);
+                    win_println(window, THEME_DEFAULT, '!', "No custom notification settings for %s", mucwin->roomjid);
                 }
             }
         }
@@ -5514,6 +5594,130 @@ cmd_inpblock(ProfWin *window, const char *const command, gchar **args)
         }
 
         _cmd_set_boolean_preference(value, command, "Dynamic input blocking", PREF_INPBLOCK_DYNAMIC);
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+
+    return TRUE;
+}
+
+gboolean
+cmd_titlebar(ProfWin *window, const char *const command, gchar **args)
+{
+    if (g_strcmp0(args[0], "up") == 0) {
+        gboolean result = prefs_titlebar_pos_up();
+        if (result) {
+            ui_resize();
+            cons_show("Title bar moved up.");
+        } else {
+            cons_show("Could not move title bar up.");
+        }
+
+        return TRUE;
+    }
+    if (g_strcmp0(args[0], "down") == 0) {
+        gboolean result = prefs_titlebar_pos_down();
+        if (result) {
+            ui_resize();
+            cons_show("Title bar moved down.");
+        } else {
+            cons_show("Could not move title bar down.");
+        }
+
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+
+    return TRUE;
+}
+
+gboolean
+cmd_mainwin(ProfWin *window, const char *const command, gchar **args)
+{
+    if (g_strcmp0(args[0], "up") == 0) {
+        gboolean result = prefs_mainwin_pos_up();
+        if (result) {
+            ui_resize();
+            cons_show("Main window moved up.");
+        } else {
+            cons_show("Could not move main window up.");
+        }
+
+        return TRUE;
+    }
+    if (g_strcmp0(args[0], "down") == 0) {
+        gboolean result = prefs_mainwin_pos_down();
+        if (result) {
+            ui_resize();
+            cons_show("Main window moved down.");
+        } else {
+            cons_show("Could not move main window down.");
+        }
+
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+
+    return TRUE;
+}
+
+gboolean
+cmd_statusbar(ProfWin *window, const char *const command, gchar **args)
+{
+    if (g_strcmp0(args[0], "up") == 0) {
+        gboolean result = prefs_statusbar_pos_up();
+        if (result) {
+            ui_resize();
+            cons_show("Status bar moved up");
+        } else {
+            cons_show("Could not move status bar up.");
+        }
+
+        return TRUE;
+    }
+    if (g_strcmp0(args[0], "down") == 0) {
+        gboolean result = prefs_statusbar_pos_down();
+        if (result) {
+            ui_resize();
+            cons_show("Status bar moved down.");
+        } else {
+            cons_show("Could not move status bar down.");
+        }
+
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+
+    return TRUE;
+}
+
+gboolean
+cmd_inputwin(ProfWin *window, const char *const command, gchar **args)
+{
+    if (g_strcmp0(args[0], "up") == 0) {
+        gboolean result = prefs_inputwin_pos_up();
+        if (result) {
+            ui_resize();
+            cons_show("Input window moved up.");
+        } else {
+            cons_show("Could not move input window up.");
+        }
+
+        return TRUE;
+    }
+    if (g_strcmp0(args[0], "down") == 0) {
+        gboolean result = prefs_inputwin_pos_down();
+        if (result) {
+            ui_resize();
+            cons_show("Input window moved down.");
+        } else {
+            cons_show("Could not move input window down.");
+        }
+
         return TRUE;
     }
 
@@ -5661,6 +5865,16 @@ cmd_ping(ProfWin *window, const char *const command, gchar **args)
         return TRUE;
     }
 
+    if (args[0] == NULL && connection_supports(XMPP_FEATURE_PING) == FALSE) {
+        cons_show("Server does not support ping requests.");
+        return TRUE;
+    }
+
+    if (args[0] != NULL && caps_jid_has_feature(args[0], XMPP_FEATURE_PING) == FALSE) {
+        cons_show("%s does not support ping requests.", args[0]);
+        return TRUE;
+    }
+
     iq_send_ping(args[0]);
 
     if (args[0] == NULL) {
@@ -5793,7 +6007,7 @@ cmd_priority(ProfWin *window, const char *const command, gchar **args)
     if (res) {
         accounts_set_priority_all(session_get_account_name(), intval);
         resource_presence_t last_presence = accounts_get_last_presence(session_get_account_name());
-        cl_ev_presence_send(last_presence, connection_get_presence_msg(), 0);
+        cl_ev_presence_send(last_presence, 0);
         cons_show("Priority set to %d.", intval);
     } else {
         cons_show(err_msg);
@@ -6045,44 +6259,91 @@ cmd_xa(ProfWin *window, const char *const command, gchar **args)
 }
 
 gboolean
-cmd_plugins(ProfWin *window, const char *const command, gchar **args)
+cmd_plugins_sourcepath(ProfWin *window, const char *const command, gchar **args)
 {
-    if (g_strcmp0(args[0], "install") == 0) {
-        char *filename = args[1];
-        if (filename == NULL) {
+    if (args[1] == NULL) {
+        char *sourcepath = prefs_get_string(PREF_PLUGINS_SOURCEPATH);
+        if (sourcepath) {
+            cons_show("Current plugins sourcepath: %s", sourcepath);
+            prefs_free_string(sourcepath);
+        } else {
+            cons_show("Plugins sourcepath not currently set.");
+        }
+        return TRUE;
+    }
+
+    if (g_strcmp0(args[1], "clear") == 0) {
+        prefs_set_string(PREF_PLUGINS_SOURCEPATH, NULL);
+        cons_show("Plugins sourcepath cleared.");
+        return TRUE;
+    }
+
+    if (g_strcmp0(args[1], "set") == 0) {
+        char *path = args[2];
+        if (path == NULL) {
             cons_bad_cmd_usage(command);
             return TRUE;
         }
 
         // expand ~ to $HOME
-        if (filename[0] == '~' && filename[1] == '/') {
-            if (asprintf(&filename, "%s/%s", getenv("HOME"), filename+2) == -1) {
+        if (path[0] == '~' && path[1] == '/') {
+            if (asprintf(&path, "%s/%s", getenv("HOME"), path+2) == -1) {
                 return TRUE;
             }
         } else {
-            filename = strdup(filename);
+            path = strdup(path);
         }
 
-        if (access(filename, R_OK) != 0) {
-            cons_show("File not found: %s", filename);
-            free(filename);
+        if (!is_dir(path)) {
+            cons_show("Plugins sourcepath must be a directory.");
             return TRUE;
         }
 
-        if (!is_regular_file(filename)) {
-            cons_show("Not a file: %s", filename);
-            free(filename);
+        cons_show("Setting plugins sourcepath: %s", path);
+        prefs_set_string(PREF_PLUGINS_SOURCEPATH, path);
+        return TRUE;
+    }
+
+    cons_bad_cmd_usage(command);
+    return TRUE;
+}
+
+gboolean
+cmd_plugins_install(ProfWin *window, const char *const command, gchar **args)
+{
+    char *path = args[1];
+    if (path == NULL) {
+        char* sourcepath = prefs_get_string(PREF_PLUGINS_SOURCEPATH);
+        if (sourcepath) {
+            path = strdup(sourcepath);
+            prefs_free_string(sourcepath);
+        } else {
+            cons_show("Either a path must be provided or the sourcepath property must be set, see /help plugins");
             return TRUE;
         }
+    } else if (path[0] == '~' && path[1] == '/') {
+        if (asprintf(&path, "%s/%s", getenv("HOME"), path+2) == -1) {
+            return TRUE;
+        }
+    } else {
+        path = strdup(path);
+    }
 
-        if (!g_str_has_suffix(filename, ".py") && !g_str_has_suffix(filename, ".so")) {
+    if (access(path, R_OK) != 0) {
+        cons_show("File not found: %s", path);
+        free(path);
+        return TRUE;
+    }
+
+    if (is_regular_file(path)) {
+        if (!g_str_has_suffix(path, ".py") && !g_str_has_suffix(path, ".so")) {
             cons_show("Plugins must have one of the following extensions: '.py' '.so'");
-            free(filename);
+            free(path);
             return TRUE;
         }
 
-        gchar *plugin_name = g_path_get_basename(filename);
-        gboolean result = plugins_install(plugin_name, filename);
+        gchar *plugin_name = g_path_get_basename(path);
+        gboolean result = plugins_install(plugin_name, path);
         if (result) {
             cons_show("Plugin installed: %s", plugin_name);
         } else {
@@ -6090,75 +6351,145 @@ cmd_plugins(ProfWin *window, const char *const command, gchar **args)
         }
         g_free(plugin_name);
 
-        free(filename);
-        return TRUE;
-    } else if (g_strcmp0(args[0], "load") == 0) {
-        if (args[1] == NULL) {
-            cons_bad_cmd_usage(command);
-            return TRUE;
-        }
-        gboolean res = plugins_load(args[1]);
-        if (res) {
-            cons_show("Loaded plugin: %s", args[1]);
-        } else {
-            cons_show("Failed to load plugin: %s", args[1]);
-        }
-
-        return TRUE;
-    } else if (g_strcmp0(args[0], "unload") == 0) {
-        if (args[1] == NULL) {
-            cons_bad_cmd_usage(command);
-            return TRUE;
-        }
-        gboolean res = plugins_unload(args[1]);
-        if (res) {
-            cons_show("Unloaded plugin: %s", args[1]);
-        } else {
-            cons_show("Failed to unload plugin: %s", args[1]);
-        }
-
-        return TRUE;
-    } else if (g_strcmp0(args[0], "reload") == 0) {
-        if (args[1] == NULL) {
-            plugins_reload_all();
-            cons_show("Reloaded all plugins");
-        } else {
-            gboolean res = plugins_reload(args[1]);
-            if (res) {
-                cons_show("Reloaded plugin: %s", args[1]);
-            } else {
-                cons_show("Failed to reload plugin: %s", args[1]);
-            }
-        }
-
-        return TRUE;
-    } else if (g_strcmp0(args[0], "python_version") == 0) {
-#ifdef HAVE_PYTHON
-        const char *version = python_get_version();
-        cons_show("Python version:");
-        cons_show("%s", version);
-#else
-        cons_show("This build does not support pytyon plugins.");
-#endif
-        return TRUE;
-
-    } else {
-        GList *plugins = plugins_loaded_list();
-        if (plugins == NULL) {
-            cons_show("No plugins installed.");
-            return TRUE;
-        }
-
-        GList *curr = plugins;
-        cons_show("Installed plugins:");
-        while (curr) {
-            cons_show("  %s", curr->data);
-            curr = g_list_next(curr);
-        }
-        g_list_free(plugins);
-
+        free(path);
         return TRUE;
     }
+
+    if (is_dir(path)) {
+        PluginsInstallResult* result = plugins_install_all(path);
+        if (result->installed || result->failed) {
+            if (result->installed) {
+                cons_show("");
+                cons_show("Installed plugins:");
+                GSList *curr = result->installed;
+                while (curr) {
+                    cons_show("  %s", curr->data);
+                    curr = g_slist_next(curr);
+                }
+            }
+            if (result->failed) {
+                cons_show("");
+                cons_show("Failed installs:");
+                GSList *curr = result->failed;
+                while (curr) {
+                    cons_show("  %s", curr->data);
+                    curr = g_slist_next(curr);
+                }
+            }
+        } else {
+            cons_show("No plugins found in: %s", path);
+        }
+        free(path);
+        plugins_free_install_result(result);
+        return TRUE;
+    }
+
+    cons_show("Argument must be a file or directory.");
+    return TRUE;
+}
+
+gboolean
+cmd_plugins_load(ProfWin *window, const char *const command, gchar **args)
+{
+    if (args[1] == NULL) {
+        GSList *loaded = plugins_load_all();
+        if (loaded) {
+            cons_show("Loaded plugins:");
+            GSList *curr = loaded;
+            while (curr) {
+                cons_show("  %s", curr->data);
+                curr = g_slist_next(curr);
+            }
+            g_slist_free_full(loaded, g_free);
+        } else {
+            cons_show("No plugins loaded.");
+        }
+        return TRUE;
+    }
+
+    gboolean res = plugins_load(args[1]);
+    if (res) {
+        cons_show("Loaded plugin: %s", args[1]);
+    } else {
+        cons_show("Failed to load plugin: %s", args[1]);
+    }
+
+    return TRUE;
+}
+
+gboolean
+cmd_plugins_unload(ProfWin *window, const char *const command, gchar **args)
+{
+    if (args[1] == NULL) {
+        gboolean res = plugins_unload_all();
+        if (res) {
+            cons_show("Unloaded all plugins.");
+        } else {
+            cons_show("No plugins unloaded.");
+        }
+        return TRUE;
+    }
+
+    gboolean res = plugins_unload(args[1]);
+    if (res) {
+        cons_show("Unloaded plugin: %s", args[1]);
+    } else {
+        cons_show("Failed to unload plugin: %s", args[1]);
+    }
+
+    return TRUE;
+}
+
+gboolean
+cmd_plugins_reload(ProfWin *window, const char *const command, gchar **args)
+{
+    if (args[1] == NULL) {
+        plugins_reload_all();
+        cons_show("Reloaded all plugins");
+        return TRUE;
+    }
+
+    gboolean res = plugins_reload(args[1]);
+    if (res) {
+        cons_show("Reloaded plugin: %s", args[1]);
+    } else {
+        cons_show("Failed to reload plugin: %s", args[1]);
+    }
+
+    return TRUE;
+}
+
+gboolean
+cmd_plugins_python_version(ProfWin *window, const char *const command, gchar **args)
+{
+#ifdef HAVE_PYTHON
+    const char *version = python_get_version();
+    cons_show("Python version:");
+    cons_show("%s", version);
+#else
+    cons_show("This build does not support pytyon plugins.");
+#endif
+    return TRUE;
+}
+
+gboolean
+cmd_plugins(ProfWin *window, const char *const command, gchar **args)
+{
+    GList *plugins = plugins_loaded_list();
+    if (plugins == NULL) {
+        cons_show("No plugins installed.");
+        return TRUE;
+    }
+
+    GList *curr = plugins;
+    cons_show("Installed plugins:");
+    while (curr) {
+        cons_show("  %s", curr->data);
+        curr = g_list_next(curr);
+    }
+    g_list_free(plugins);
+
+    return TRUE;
 }
 
 gboolean
@@ -6337,19 +6668,19 @@ cmd_pgp(ProfWin *window, const char *const command, gchar **args)
         }
 
         if (chatwin->is_otr) {
-            ui_current_print_formatted_line('!', 0, "You must end the OTR session to start PGP encryption.");
+            win_println(window, THEME_DEFAULT, '!', "You must end the OTR session to start PGP encryption.");
             return TRUE;
         }
 
         if (chatwin->pgp_send) {
-            ui_current_print_formatted_line('!', 0, "You have already started PGP encryption.");
+            win_println(window, THEME_DEFAULT, '!', "You have already started PGP encryption.");
             return TRUE;
         }
 
         ProfAccount *account = accounts_get_account(session_get_account_name());
         char *err_str = NULL;
         if (!p_gpg_valid_key(account->pgp_keyid, &err_str)) {
-            ui_current_print_formatted_line('!', 0, "Invalid PGP key ID %s: %s, cannot start PGP encryption.", account->pgp_keyid, err_str);
+            win_println(window, THEME_DEFAULT, '!', "Invalid PGP key ID %s: %s, cannot start PGP encryption.", account->pgp_keyid, err_str);
             free(err_str);
             account_free(account);
             return TRUE;
@@ -6358,12 +6689,12 @@ cmd_pgp(ProfWin *window, const char *const command, gchar **args)
         account_free(account);
 
         if (!p_gpg_available(chatwin->barejid)) {
-            ui_current_print_formatted_line('!', 0, "No PGP key found for %s.", chatwin->barejid);
+            win_println(window, THEME_DEFAULT, '!', "No PGP key found for %s.", chatwin->barejid);
             return TRUE;
         }
 
         chatwin->pgp_send = TRUE;
-        ui_current_print_formatted_line('!', 0, "PGP encyption enabled.");
+        win_println(window, THEME_DEFAULT, '!', "PGP encryption enabled.");
         return TRUE;
     }
 
@@ -6381,12 +6712,12 @@ cmd_pgp(ProfWin *window, const char *const command, gchar **args)
 
         ProfChatWin *chatwin = (ProfChatWin*)window;
         if (chatwin->pgp_send == FALSE) {
-            ui_current_print_formatted_line('!', 0, "PGP encryption is not currently enabled.");
+            win_println(window, THEME_DEFAULT, '!', "PGP encryption is not currently enabled.");
             return TRUE;
         }
 
         chatwin->pgp_send = FALSE;
-        ui_current_print_formatted_line('!', 0, "PGP encyption disabled.");
+        win_println(window, THEME_DEFAULT, '!', "PGP encryption disabled.");
         return TRUE;
     }
 
@@ -6533,12 +6864,12 @@ cmd_otr_myfp(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (!otr_key_loaded()) {
-        ui_current_print_formatted_line('!', 0, "You have not generated or loaded a private key, use '/otr gen'");
+        win_println(window, THEME_DEFAULT, '!', "You have not generated or loaded a private key, use '/otr gen'");
         return TRUE;
     }
 
     char *fingerprint = otr_get_my_fingerprint();
-    ui_current_print_formatted_line('!', 0, "Your OTR fingerprint: %s", fingerprint);
+    win_println(window, THEME_DEFAULT, '!', "Your OTR fingerprint: %s", fingerprint);
     free(fingerprint);
     return TRUE;
 #else
@@ -6557,19 +6888,19 @@ cmd_otr_theirfp(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in a regular chat window to view a recipient's fingerprint.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in a regular chat window to view a recipient's fingerprint.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
     char *fingerprint = otr_get_their_fingerprint(chatwin->barejid);
-    ui_current_print_formatted_line('!', 0, "%s's OTR fingerprint: %s", chatwin->barejid, fingerprint);
+    win_println(window, THEME_DEFAULT, '!', "%s's OTR fingerprint: %s", chatwin->barejid, fingerprint);
     free(fingerprint);
     return TRUE;
 #else
@@ -6602,17 +6933,17 @@ cmd_otr_start(ProfWin *window, const char *const command, gchar **args)
         ui_focus_win((ProfWin*)chatwin);
 
         if (chatwin->pgp_send) {
-            ui_current_print_formatted_line('!', 0, "You must disable PGP encryption before starting an OTR session.");
+            win_println(window, THEME_DEFAULT, '!', "You must disable PGP encryption before starting an OTR session.");
             return TRUE;
         }
 
         if (chatwin->is_otr) {
-            ui_current_print_formatted_line('!', 0, "You are already in an OTR session.");
+            win_println(window, THEME_DEFAULT, '!', "You are already in an OTR session.");
             return TRUE;
         }
 
         if (!otr_key_loaded()) {
-            ui_current_print_formatted_line('!', 0, "You have not generated or loaded a private key, use '/otr gen'");
+            win_println(window, THEME_DEFAULT, '!', "You have not generated or loaded a private key, use '/otr gen'");
             return TRUE;
         }
 
@@ -6629,24 +6960,24 @@ cmd_otr_start(ProfWin *window, const char *const command, gchar **args)
     // no recipient, use current chat
     } else {
         if (window->type != WIN_CHAT) {
-            ui_current_print_line("You must be in a regular chat window to start an OTR session.");
+            win_println(window, THEME_DEFAULT, '-', "You must be in a regular chat window to start an OTR session.");
             return TRUE;
         }
 
         ProfChatWin *chatwin = (ProfChatWin*)window;
         assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
         if (chatwin->pgp_send) {
-            ui_current_print_formatted_line('!', 0, "You must disable PGP encryption before starting an OTR session.");
+            win_println(window, THEME_DEFAULT, '!', "You must disable PGP encryption before starting an OTR session.");
             return TRUE;
         }
 
         if (chatwin->is_otr) {
-            ui_current_print_formatted_line('!', 0, "You are already in an OTR session.");
+            win_println(window, THEME_DEFAULT, '!', "You are already in an OTR session.");
             return TRUE;
         }
 
         if (!otr_key_loaded()) {
-            ui_current_print_formatted_line('!', 0, "You have not generated or loaded a private key, use '/otr gen'");
+            win_println(window, THEME_DEFAULT, '!', "You have not generated or loaded a private key, use '/otr gen'");
             return TRUE;
         }
 
@@ -6671,14 +7002,14 @@ cmd_otr_end(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in a regular chat window to use OTR.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in a regular chat window to use OTR.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6701,14 +7032,14 @@ cmd_otr_trust(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in an OTR session to trust a recipient.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in an OTR session to trust a recipient.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6731,14 +7062,14 @@ cmd_otr_untrust(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in an OTR session to untrust a recipient.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in an OTR session to untrust a recipient.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6761,14 +7092,14 @@ cmd_otr_secret(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in an OTR session to trust a recipient.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in an OTR session to trust a recipient.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6803,14 +7134,14 @@ cmd_otr_question(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in an OTR session to trust a recipient.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in an OTR session to trust a recipient.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6832,14 +7163,14 @@ cmd_otr_answer(ProfWin *window, const char *const command, gchar **args)
     }
 
     if (window->type != WIN_CHAT) {
-        ui_current_print_line("You must be in an OTR session to trust a recipient.");
+        win_println(window, THEME_DEFAULT, '-', "You must be in an OTR session to trust a recipient.");
         return TRUE;
     }
 
     ProfChatWin *chatwin = (ProfChatWin*)window;
     assert(chatwin->memcheck == PROFCHATWIN_MEMCHECK);
     if (chatwin->is_otr == FALSE) {
-        ui_current_print_formatted_line('!', 0, "You are not currently in an OTR session.");
+        win_println(window, THEME_DEFAULT, '!', "You are not currently in an OTR session.");
         return TRUE;
     }
 
@@ -6871,7 +7202,7 @@ _cmd_execute(ProfWin *window, const char *const command, const char *const inp)
         gboolean result = FALSE;
         gchar **args = parse_args_with_freetext(inp, 1, 2, &result);
         if (!result) {
-            ui_current_print_formatted_line('!', 0, "Invalid command, see /form help");
+            win_println(window, THEME_DEFAULT, '!', "Invalid command, see /form help");
             result = TRUE;
         } else {
             gchar **tokens = g_strsplit(inp, " ", 2);
@@ -6954,7 +7285,7 @@ _cmd_execute_default(ProfWin *window, const char *inp)
 
     jabber_conn_status_t status = connection_get_status();
     if (status != JABBER_CONNECTED) {
-        ui_current_print_line("You are not currently connected.");
+        win_println(window, THEME_DEFAULT, '-', "You are not currently connected.");
         return TRUE;
     }
 
@@ -7030,7 +7361,8 @@ _update_presence(const resource_presence_t resource_presence,
     if (conn_status != JABBER_CONNECTED) {
         cons_show("You are not currently connected.");
     } else {
-        cl_ev_presence_send(resource_presence, msg, 0);
+        connection_set_presence_msg(msg);
+        cl_ev_presence_send(resource_presence, 0);
         ui_update_presence(resource_presence, msg, show);
     }
 }

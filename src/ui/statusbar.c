@@ -1,7 +1,7 @@
 /*
  * statusbar.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -49,6 +49,7 @@
 #include "ui/ui.h"
 #include "ui/statusbar.h"
 #include "ui/inputwin.h"
+#include "ui/screen.h"
 
 #define TIME_CHECK 60000000
 
@@ -74,8 +75,8 @@ static void _status_bar_draw(void);
 void
 create_status_bar(void)
 {
-    int rows, cols, i;
-    getmaxyx(stdscr, rows, cols);
+    int i;
+    int cols = getmaxx(stdscr);
 
     is_active[1] = TRUE;
     is_new[1] = FALSE;
@@ -89,7 +90,8 @@ create_status_bar(void)
 
     int bracket_attrs = theme_attrs(THEME_STATUS_BRACKET);
 
-    status_bar = newwin(1, cols, rows-2, 0);
+    int row = screen_statusbar_row();
+    status_bar = newwin(1, cols, row, 0);
     wbkgd(status_bar, theme_attrs(THEME_STATUS_TEXT));
     wattron(status_bar, bracket_attrs);
     mvwprintw(status_bar, 0, cols - 34, _active);
@@ -115,14 +117,14 @@ status_bar_update_virtual(void)
 void
 status_bar_resize(void)
 {
-    int rows, cols;
-    getmaxyx(stdscr, rows, cols);
+    int cols = getmaxx(stdscr);
 
     werase(status_bar);
 
     int bracket_attrs = theme_attrs(THEME_STATUS_BRACKET);
 
-    mvwin(status_bar, rows-2, 0);
+    int row = screen_statusbar_row();
+    mvwin(status_bar, row, 0);
     wresize(status_bar, 1, cols);
     wbkgd(status_bar, theme_attrs(THEME_STATUS_TEXT));
     wattron(status_bar, bracket_attrs);
@@ -457,6 +459,7 @@ _status_bar_draw(void)
     last_time = g_date_time_new_now(tz);
 
     int bracket_attrs = theme_attrs(THEME_STATUS_BRACKET);
+    int time_attrs = theme_attrs(THEME_STATUS_TIME);
 
     char *time_pref = prefs_get_string(PREF_TIME_STATUSBAR);
     if (g_strcmp0(time_pref, "off") != 0) {
@@ -466,7 +469,9 @@ _status_bar_draw(void)
         wattron(status_bar, bracket_attrs);
         mvwaddch(status_bar, 0, 1, '[');
         wattroff(status_bar, bracket_attrs);
+        wattron(status_bar, time_attrs);
         mvwprintw(status_bar, 0, 2, date_fmt);
+        wattroff(status_bar, time_attrs);
         wattron(status_bar, bracket_attrs);
         mvwaddch(status_bar, 0, 2 + len, ']');
         wattroff(status_bar, bracket_attrs);

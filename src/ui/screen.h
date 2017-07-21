@@ -1,5 +1,5 @@
 /*
- * inputwin.c
+ * screen.h
  *
  * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
@@ -32,18 +32,9 @@
  *
  */
 
-#ifndef UI_INPUTWIN_H
-#define UI_INPUTWIN_H
+int screen_titlebar_row(void);
+int screen_statusbar_row(void);
+int screen_inputwin_row(void);
 
-#include <glib.h>
-
-#define INP_WIN_MAX 1000
-
-void create_input_window(void);
-void inp_close(void);
-void inp_win_resize(void);
-void inp_put_back(void);
-char* inp_get_password(void);
-char* inp_get_line(void);
-
-#endif
+int screen_mainwin_row_start(void);
+int screen_mainwin_row_end(void);

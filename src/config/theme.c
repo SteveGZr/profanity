@@ -1,7 +1,7 @@
 /*
  * theme.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -81,6 +81,7 @@ theme_init(const char *const theme_name)
     g_hash_table_insert(defaults, strdup("main.text.me"),            strdup("white"));
     g_hash_table_insert(defaults, strdup("main.text.them"),          strdup("white"));
     g_hash_table_insert(defaults, strdup("main.splash"),             strdup("cyan"));
+    g_hash_table_insert(defaults, strdup("main.help.header"),        strdup("white"));
     g_hash_table_insert(defaults, strdup("error"),                   strdup("red"));
     g_hash_table_insert(defaults, strdup("incoming"),                strdup("yellow"));
     g_hash_table_insert(defaults, strdup("mention"),                 strdup("yellow"));
@@ -103,6 +104,7 @@ theme_init(const char *const theme_name)
     g_hash_table_insert(defaults, strdup("statusbar.brackets"),      strdup("cyan"));
     g_hash_table_insert(defaults, strdup("statusbar.active"),        strdup("cyan"));
     g_hash_table_insert(defaults, strdup("statusbar.new"),           strdup("white"));
+    g_hash_table_insert(defaults, strdup("statusbar.time"),          strdup("white"));
     g_hash_table_insert(defaults, strdup("me"),                      strdup("yellow"));
     g_hash_table_insert(defaults, strdup("them"),                    strdup("green"));
     g_hash_table_insert(defaults, strdup("receipt.sent"),            strdup("red"));
@@ -150,6 +152,8 @@ theme_init(const char *const theme_name)
     g_hash_table_insert(defaults, strdup("roster.room.trigger"),     strdup("green"));
     g_hash_table_insert(defaults, strdup("roster.room.mention"),     strdup("green"));
     g_hash_table_insert(defaults, strdup("occupants.header"),        strdup("yellow"));
+
+    _load_preferences();
 }
 
 gboolean
@@ -428,7 +432,6 @@ _load_preferences(void)
     _set_string_preference("roster.private", PREF_ROSTER_PRIVATE);
     _set_string_preference("roster.count", PREF_ROSTER_COUNT);
 
-
     if (g_key_file_has_key(theme, "ui", "occupants.size", NULL)) {
         gint occupants_size = g_key_file_get_integer(theme, "ui", "occupants.size", NULL);
         prefs_set_occupants_size(occupants_size);
@@ -528,6 +531,19 @@ _load_preferences(void)
             prefs_set_pgp_char(ch[0]);
             g_free(ch);
         }
+    }
+
+    if (g_key_file_has_key(theme, "ui", "titlebar.position", NULL) &&
+            g_key_file_has_key(theme, "ui", "mainwin.position", NULL) &&
+            g_key_file_has_key(theme, "ui", "statusbar.position", NULL) &&
+            g_key_file_has_key(theme, "ui", "inputwin.position", NULL)) {
+        int titlebar_pos = g_key_file_get_integer(theme, "ui", "titlebar.position", NULL);
+        int mainwin_pos = g_key_file_get_integer(theme, "ui", "mainwin.position", NULL);
+        int statusbar_pos = g_key_file_get_integer(theme, "ui", "statusbar.position", NULL);
+        int inputwin_pos = g_key_file_get_integer(theme, "ui", "inputwin.position", NULL);
+        ProfWinPlacement *placement = prefs_create_profwin_placement(titlebar_pos, mainwin_pos, statusbar_pos, inputwin_pos);
+        prefs_save_win_placement(placement);
+        prefs_free_win_placement(placement);
     }
 }
 
@@ -717,6 +733,7 @@ theme_attrs(theme_item_t attrs)
     case THEME_TEXT_ME:                 _theme_prep_fgnd("main.text.me",            lookup_str, &bold); break;
     case THEME_TEXT_THEM:               _theme_prep_fgnd("main.text.them",          lookup_str, &bold); break;
     case THEME_SPLASH:                  _theme_prep_fgnd("main.splash",             lookup_str, &bold); break;
+    case THEME_HELP_HEADER:             _theme_prep_fgnd("main.help.header",        lookup_str, &bold); break;
     case THEME_ERROR:                   _theme_prep_fgnd("error",                   lookup_str, &bold); break;
     case THEME_INCOMING:                _theme_prep_fgnd("incoming",                lookup_str, &bold); break;
     case THEME_MENTION:                 _theme_prep_fgnd("mention",                 lookup_str, &bold); break;
@@ -739,6 +756,7 @@ theme_attrs(theme_item_t attrs)
     case THEME_STATUS_BRACKET:          _theme_prep_fgnd("statusbar.brackets",      lookup_str, &bold); break;
     case THEME_STATUS_ACTIVE:           _theme_prep_fgnd("statusbar.active",        lookup_str, &bold); break;
     case THEME_STATUS_NEW:              _theme_prep_fgnd("statusbar.new",           lookup_str, &bold); break;
+    case THEME_STATUS_TIME:             _theme_prep_fgnd("statusbar.time",          lookup_str, &bold); break;
     case THEME_ME:                      _theme_prep_fgnd("me",                      lookup_str, &bold); break;
     case THEME_THEM:                    _theme_prep_fgnd("them",                    lookup_str, &bold); break;
     case THEME_RECEIPT_SENT:            _theme_prep_fgnd("receipt.sent",            lookup_str, &bold); break;
@@ -827,6 +845,7 @@ theme_attrs(theme_item_t attrs)
     case THEME_STATUS_BRACKET:
     case THEME_STATUS_ACTIVE:
     case THEME_STATUS_NEW:
+    case THEME_STATUS_TIME:
         _theme_prep_bgnd("statusbar", "blue", lookup_str);
         break;
     default:

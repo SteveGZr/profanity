@@ -1,7 +1,7 @@
 /*
  * server_events.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -135,19 +135,23 @@ sv_ev_roster_received(void)
             GTimeSpan diff_micros = g_date_time_difference(nowdt, lastdt);
             int diff_secs = (diff_micros / 1000) / 1000;
             if (prefs_get_boolean(PREF_LASTACTIVITY)) {
-                cl_ev_presence_send(conn_presence, NULL, diff_secs);
+                connection_set_presence_msg(NULL);
+                cl_ev_presence_send(conn_presence, diff_secs);
             } else {
-                cl_ev_presence_send(conn_presence, NULL, 0);
+                connection_set_presence_msg(NULL);
+                cl_ev_presence_send(conn_presence, 0);
             }
             g_date_time_unref(lastdt);
         } else {
-            cl_ev_presence_send(conn_presence, NULL, 0);
+            connection_set_presence_msg(NULL);
+            cl_ev_presence_send(conn_presence, 0);
         }
 
         free(last_activity_str);
         g_date_time_unref(nowdt);
     } else {
-        cl_ev_presence_send(conn_presence, NULL, 0);
+        connection_set_presence_msg(NULL);
+        cl_ev_presence_send(conn_presence, 0);
     }
 
     const char *fulljid = connection_get_fulljid();
@@ -442,7 +446,7 @@ sv_ev_incoming_message(char *barejid, char *resource, char *message, char *pgp_m
 #ifdef HAVE_LIBGPGME
     if (pgp_message) {
         if (chatwin->is_otr) {
-            win_println((ProfWin*)chatwin, 0, "PGP encrypted message received whilst in OTR session.");
+            win_println((ProfWin*)chatwin, THEME_DEFAULT, '-', "PGP encrypted message received whilst in OTR session.");
         } else { // PROF_ENC_NONE, PROF_ENC_PGP
             _sv_ev_incoming_pgp(chatwin, new_win, barejid, resource, message, pgp_message, timestamp);
         }
@@ -988,7 +992,7 @@ sv_ev_certfail(const char *const errormsg, TLSCertificate *cert)
     }
 
     if (g_strcmp0(cmd, "/tls allow") == 0) {
-        cons_show("Coninuing with connection.");
+        cons_show("Continuing with connection.");
         tlscerts_set_current(cert->fingerprint);
         free(cmd);
         return 1;

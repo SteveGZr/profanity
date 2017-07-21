@@ -1,7 +1,7 @@
 /*
  * inputwin.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -62,6 +62,7 @@
 #include "config/preferences.h"
 #include "config/theme.h"
 #include "ui/ui.h"
+#include "ui/screen.h"
 #include "ui/statusbar.h"
 #include "ui/inputwin.h"
 #include "ui/window.h"
@@ -95,6 +96,7 @@ static void _inp_rl_addfuncs(void);
 static int _inp_rl_getc(FILE *stream);
 static void _inp_rl_linehandler(char *line);
 static int _inp_rl_tab_handler(int count, int key);
+static int _inp_rl_shift_tab_handler(int count, int key);
 static int _inp_rl_win_clear_handler(int count, int key);
 static int _inp_rl_win_1_handler(int count, int key);
 static int _inp_rl_win_2_handler(int count, int key);
@@ -280,9 +282,9 @@ inp_put_back(void)
 static void
 _inp_win_update_virtual(void)
 {
-    int wrows, wcols;
-    getmaxyx(stdscr, wrows, wcols);
-    pnoutrefresh(inp_win, 0, pad_start, wrows-1, 0, wrows-1, wcols-2);
+    int wcols = getmaxx(stdscr);
+    int row = screen_inputwin_row();
+    pnoutrefresh(inp_win, 0, pad_start, row, 0, row, wcols-2);
 }
 
 static void
@@ -420,6 +422,7 @@ _inp_rl_startup_hook(void)
     rl_bind_keyseq("\\eOs", _inp_rl_win_pagedown_handler);
 
     rl_bind_key('\t', _inp_rl_tab_handler);
+    rl_bind_keyseq("\\e[Z", _inp_rl_shift_tab_handler);
 
     // unbind unwanted mappings
     rl_bind_keyseq("\\e=", NULL);
@@ -448,10 +451,27 @@ _inp_rl_linehandler(char *line)
     inp_line = line;
 }
 
+static gboolean shift_tab = FALSE;
+
 static int
 _inp_rl_getc(FILE *stream)
 {
     int ch = rl_getc(stream);
+
+    // 27, 91, 90 = Shift tab
+    if (ch == 27) {
+        shift_tab = TRUE;
+        return ch;
+    }
+    if (shift_tab && ch == 91) {
+        return ch;
+    }
+    if (shift_tab && ch == 90) {
+        return ch;
+    }
+
+    shift_tab = FALSE;
+
     if (_inp_printable(ch)) {
         ProfWin *window = wins_get_current();
         cmd_ac_reset(window);
@@ -476,7 +496,7 @@ _inp_rl_tab_handler(int count, int key)
 
     ProfWin *current = wins_get_current();
     if ((strncmp(rl_line_buffer, "/", 1) != 0) && (current->type == WIN_MUC)) {
-        char *result = muc_autocomplete(current, rl_line_buffer);
+        char *result = muc_autocomplete(current, rl_line_buffer, FALSE);
         if (result) {
             rl_replace_line(result, 1);
             rl_point = rl_end;
@@ -484,7 +504,35 @@ _inp_rl_tab_handler(int count, int key)
         }
     } else if (strncmp(rl_line_buffer, "/", 1) == 0) {
         ProfWin *window = wins_get_current();
-        char *result = cmd_ac_complete(window, rl_line_buffer);
+        char *result = cmd_ac_complete(window, rl_line_buffer, FALSE);
+        if (result) {
+            rl_replace_line(result, 1);
+            rl_point = rl_end;
+            free(result);
+        }
+    }
+
+    return 0;
+}
+
+static int
+_inp_rl_shift_tab_handler(int count, int key)
+{
+    if (rl_point != rl_end || !rl_line_buffer) {
+        return 0;
+    }
+
+    ProfWin *current = wins_get_current();
+    if ((strncmp(rl_line_buffer, "/", 1) != 0) && (current->type == WIN_MUC)) {
+        char *result = muc_autocomplete(current, rl_line_buffer, TRUE);
+        if (result) {
+            rl_replace_line(result, 1);
+            rl_point = rl_end;
+            free(result);
+        }
+    } else if (strncmp(rl_line_buffer, "/", 1) == 0) {
+        ProfWin *window = wins_get_current();
+        char *result = cmd_ac_complete(window, rl_line_buffer, TRUE);
         if (result) {
             rl_replace_line(result, 1);
             rl_point = rl_end;

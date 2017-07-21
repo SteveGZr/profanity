@@ -20,6 +20,7 @@ core_sources = \
 	src/ui/ui.h src/ui/window.c src/ui/window.h src/ui/core.c \
 	src/ui/titlebar.c src/ui/statusbar.c src/ui/inputwin.c \
 	src/ui/titlebar.h src/ui/statusbar.h src/ui/inputwin.h \
+	src/ui/screen.h src/ui/screen.c \
 	src/ui/console.c src/ui/notifier.c \
 	src/ui/win_types.h \
 	src/ui/window_list.c src/ui/window_list.h \
@@ -97,7 +98,7 @@ unittest_sources = \
 	src/event/client_events.c src/event/client_events.h \
 	src/ui/tray.h src/ui/tray.c \
 	tests/unittests/xmpp/stub_xmpp.c \
-	tests/unittests/ui/stub_ui.c \
+	tests/unittests/ui/stub_ui.c tests/unittests/ui/stub_ui.h \
 	tests/unittests/log/stub_log.c \
 	tests/unittests/config/stub_accounts.c \
 	tests/unittests/tools/stub_http_upload.c \
@@ -244,7 +245,7 @@ endif
 
 man_MANS = $(man_sources)
 
-EXTRA_DIST = $(man_sources) $(icons_sources) $(themes_sources) $(script_sources) profrc.example LICENSE.txt
+EXTRA_DIST = $(man_sources) $(icons_sources) $(themes_sources) $(script_sources) profrc.example LICENSE.txt README.md CHANGELOG
 
 if INCLUDE_GIT_VERSION
 EXTRA_DIST += .git/HEAD .git/index

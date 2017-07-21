@@ -1,7 +1,7 @@
 /*
  * iq.c
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -964,6 +964,15 @@ static int
 _autoping_timed_send(xmpp_conn_t *const conn, void *const userdata)
 {
     if (connection_get_status() != JABBER_CONNECTED) {
+        return 1;
+    }
+
+    if (connection_supports(STANZA_NS_PING) == FALSE) {
+        log_warning("Server doesn't advertise %s feature, disabling autoping.", STANZA_NS_PING);
+        prefs_set_autoping(0);
+        cons_show_error("Server ping not supported, autoping disabled.");
+        xmpp_conn_t *conn = connection_get_conn();
+        xmpp_timed_handler_delete(conn, _autoping_timed_send);
         return 1;
     }
 

@@ -1,7 +1,7 @@
 /*
  * window_list.h
  *
- * Copyright (C) 2012 - 2016 James Booth <boothj5@gmail.com>
+ * Copyright (C) 2012 - 2017 James Booth <boothj5@gmail.com>
  *
  * This file is part of Profanity.
  *
@@ -91,9 +91,9 @@ gboolean wins_swap(int source_win, int target_win);
 void wins_hide_subwin(ProfWin *window);
 void wins_show_subwin(ProfWin *window);
 
-char* win_autocomplete(const char *const search_str);
+char* win_autocomplete(const char *const search_str, gboolean previous);
 void win_reset_search_attempts(void);
-char* win_close_autocomplete(const char *const search_str);
+char* win_close_autocomplete(const char *const search_str, gboolean previous);
 void win_close_reset_search_attempts(void);
 
 #endif

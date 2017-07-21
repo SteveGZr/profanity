@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([profanity], [0.5.1], [boothj5web@gmail.com])
+AC_INIT([profanity], [0.6.0], [boothj5web@gmail.com])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/main.c])
@@ -159,8 +159,8 @@ AS_IF([test "x$ncurses_cv_wget_wch" != xyes],
     [AC_MSG_ERROR([ncurses does not support wide characters])])
 
 ### Check for other profanity dependencies
-PKG_CHECK_MODULES([glib], [glib-2.0 >= 2.26], [],
-    [AC_MSG_ERROR([glib 2.26 or higher is required for profanity])])
+PKG_CHECK_MODULES([glib], [glib-2.0 >= 2.40], [],
+    [AC_MSG_ERROR([glib 2.40 or higher is required for profanity])])
 PKG_CHECK_MODULES([curl], [libcurl], [],
     [AC_CHECK_LIB([curl], [main], [],
         [AC_MSG_ERROR([libcurl is required for profanity])])])
